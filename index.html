@@ -1,0 +1,140 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+	<title>2d测试</title>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<link rel="stylesheet" href="font/iconfont.css">
+	<link rel="shortcut icon" type="image/x-icon" href="docs/images/favicon.ico" />
+  <link rel="stylesheet" href="leaflet/leaflet.css"/>
+  <!-- 百度地图api 用于定位当前位置 -->
+  <script type="text/javascript" src="http://api.map.baidu.com/api?v=2.0&ak=your_ak"></script>
+  <style>
+  	.tip{position: absolute;top:0;right:0;z-index:999;}
+  	.hovColor{color:#631313;font-size:24px;}
+  	.tag{
+  		font-size: 14px;
+	    color: #222;
+	    position: absolute;
+	    top: -20px;
+	    width: 50px;
+	    height: 20px;
+	    background: #edeef5;
+	    text-align: center;
+	    padding: 2px 5px;
+	    left: -18px;
+	    border-radius: 4px;
+  	}
+  </style>
+</head>
+<body>
+<div id="mapid" style="width: 1000px; height: 600px;margin:auto">
+</div>
+<script src="leaflet/leaflet.js" ></script>
+<script src="js/jquery-1.11.1.min.js"></script>
+<!-- 后台接口文件，存放ip -->
+<script src="js/public.js"></script>
+<script>
+	
+$(function(){
+var arr = [],
+geolocation = new BMap.Geolocation();
+// 定位当前位置
+geolocation.getCurrentPosition(function (r) {
+if (this.getStatus() == BMAP_STATUS_SUCCESS) {
+	arr.push(r.point.lat);
+	arr.push(r.point.lng);
+	// 定时请求接口，动态更新icon 位置 由于只是测试代码，没有搭websocket服务器
+	var time = setInterval(function(){
+		getMap();
+	},10000)
+
+	// 根据当前定位设置中心经纬度，定位地图范围
+	var mymap = L.map('mapid').setView(arr, 8),
+			myIcon = L.divIcon({className: 'iconfont icon-99'}), //自定义icon，由于飞机图标都是重复的，这里引入icon
+			myLayerGroup = new L.LayerGroup();
+	// 地图左上角缩放，拖动调用接口 
+	mymap.on('zoomend dragend',function(){
+		mymap.getZoom(); //获取范围经纬度
+		getMap();
+	})
+
+	//默认部分
+	L.tileLayer('https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token=your_token', {
+		maxZoom: 18,
+		attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors, ' +
+			'<a href="https://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>, ' +
+			'Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
+		id: 'mapbox.streets'
+	}).addTo(mymap);
+	var popup = L.popup();
+
+	// 获取矩形范围内经纬度，这里后台是通过范围内的四个方位经纬度查询区域内航班
+	function getLatLng(){
+		var lines = mymap.getBounds();
+		var obj = {
+			north:lines._northEast.lat,
+			west:lines._southWest.lng,
+			south:lines._southWest.lat,
+			east:lines._northEast.lng
+		}
+		return obj;
+	}
+	getMap();
+
+	// 查询航班列表
+	function getMap(){
+		$.getJSON(STORE.listIP,getLatLng(), function(res) {
+			let arrList = [],
+					routeList = [];
+			myLayerGroup.clearLayers(); //清除marker标记组，便于重绘
+			$.each(res,function(i){
+				let arr = [];
+				arr.push(res[i].latitude)
+				arr.push(res[i].longitude)
+				var marker = L.marker(arr,{icon: myIcon}).addTo(mymap);
+				marker.on('click',function(e){
+					//STORE.msgIP接口路径
+					$.getJSON(STORE.msgIP+"?id="+res[i].id, function(data) {
+						if(data){
+							var html = 
+							'航班号：'+data.callsign+'<br>起飞地：'+data.destination.name+'<br>到达：'+data.origin.name+
+							'<br>预计起飞时间：'+data.scheduledDeparture+
+							'<br>预计到达时间:'+data.scheduledArrival+
+							'<br>起飞时间：'+data.departure+
+							'<br>到达时间:'+data.arrival+
+							'<br>速度:'+res[i].speed;
+							e.target.bindPopup(html).openPopup();
+		 				}
+					})	
+					// 绘制路线
+					//点击某航班，接口返回实时的经纬度，latlngs数组 实时push新坐标
+					// L.polyline(latlngs, {color: 'red',opacity:'0.8',weight:'1'}).addTo(mymap);
+				}).on('mouseover',function(){
+					//鼠标移入设置自定义样式及文本
+					marker.setIcon(L.divIcon({className: 'iconfont icon-99 hovColor',
+						html:'<span class="tag">'+res[i].flight+'</span>'}))
+				}).on('mouseout',function(){
+					marker.setIcon(L.divIcon({className: 'iconfont icon-99'}))
+				})
+				myLayerGroup.addLayer(marker);
+				mymap.addLayer(myLayerGroup);
+			})
+		})
+	
+	}
+	function onMapClick(e) {
+		popup
+			.setLatLng(e.latlng)
+			.setContent("经纬度：" + e.latlng.toString())
+			.openOn(mymap);
+		}
+		mymap.on('click', onMapClick);
+  }
+});
+
+})
+</script>
+</body>
+</html>
